@@ -3,8 +3,16 @@ import { getSession, signOut, useSession } from 'next-auth/react';
 import Header from '../components/Header';
 import Sidebar from '../components/Sidebar';
 import Feed from '../components/Feed';
+import { AnimatePresence } from 'framer-motion';
+import Modal from '../components/Modal';
+import { useRecoilState } from 'recoil';
+import { modalState, modalTypeState } from '../atoms/modalAtom';
+import { connectToDatabase } from '../utils/mongodb';
+import Widgets from '../components/Widgets';
 
-export default function Home() {
+export default function Home({ posts, news }) {
+  const [modalOpen, setModalOpen] = useRecoilState(modalState);
+  const [modalType, setModalType] = useRecoilState(modalTypeState);
   const { data: session } = useSession;
 
   return (
@@ -20,9 +28,14 @@ export default function Home() {
         <div className="container flex justify-center mx-auto gap-x-5 px-4 sm:px-12">
           <div className="flex flex-col md:flex-row gap-5">
             <Sidebar />
-            <Feed />
+            <Feed posts={posts} />
           </div>
-          <div>There the widget goes</div>
+          <Widgets news={news} />
+          <AnimatePresence>
+            {modalOpen && (
+              <Modal handleClose={() => setModalOpen(false)} type={modalType} />
+            )}
+          </AnimatePresence>
         </div>
       </main>
     </div>
@@ -31,6 +44,7 @@ export default function Home() {
 
 export async function getServerSideProps(context) {
   const session = await getSession(context);
+
   if (!session) {
     return {
       redirect: {
@@ -40,9 +54,32 @@ export async function getServerSideProps(context) {
     };
   }
 
+  //Get post from our database
+  const { db } = await connectToDatabase();
+  const posts = await db
+    .collection('posts')
+    .find()
+    .sort({ timestamp: -1 })
+    .toArray();
+
+  //Get google news api
+  const news = await fetch(
+    `https://newsapi.org/v2/top-headlines?country=us&apiKey=${process.env.NEWS_API_KEY}`
+  ).then((res) => res.json());
+
   return {
     props: {
       session,
+      news: news.articles,
+      posts: posts.map((post) => ({
+        _id: post._id.toString(),
+        input: post.input,
+        photoUrl: post.photoUrl,
+        username: post.username,
+        email: post.email,
+        userImg: post.userImg,
+        createdAt: post.createdAt,
+      })),
     },
   };
 }
